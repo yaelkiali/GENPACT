@@ -11,6 +11,9 @@ services:
     ports:
       - "8000:8000"
     env_file: .env
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: ai-metrics-api
     depends_on:
       - postgres
       - azurite
