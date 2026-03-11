@@ -8,7 +8,7 @@ from unittest.mock import patch
 from app.main import app
 from app.database import Base, get_db
 
-# SQLite בזיכרון — לא צריך Docker לבדיקות
+# In-memory SQLite — no Docker required for tests
 engine = create_engine(
     "sqlite:///./test.db",
     connect_args={"check_same_thread": False}
@@ -27,13 +27,13 @@ def override_get_db():
 
 app.dependency_overrides[get_db] = override_get_db
 
-# מוק ל-blob כדי שבדיקות לא ידרשו Azurite
+# Mock blob storage so tests don't require Azurite
 with patch("app.main.save_request_to_blob", return_value="test/path.json"), \
      patch("app.main.ensure_container"):
     client = TestClient(app)
 
 
-# ── בדיקות ───────────────────────────────────────────────────
+# ── Tests ─────────────────────────────────────────────────────
 
 def test_health():
     r = client.get("/health")
@@ -44,14 +44,14 @@ def test_health():
 def test_chat_returns_200():
     with patch("app.main.save_request_to_blob", return_value="p"), \
          patch("app.main.ensure_container"):
-        r = client.post("/chat", json={"prompt": "מה זה FastAPI?", "model": "gpt-4"})
+        r = client.post("/chat", json={"prompt": "What is FastAPI?", "model": "gpt-4"})
     assert r.status_code == 200
 
 
 def test_chat_has_required_fields():
     with patch("app.main.save_request_to_blob", return_value="p"), \
          patch("app.main.ensure_container"):
-        r = client.post("/chat", json={"prompt": "שלום", "model": "claude-3"})
+        r = client.post("/chat", json={"prompt": "Hello", "model": "claude-3"})
     data = r.json()
     assert "request_id" in data
     assert "tokens_input" in data
@@ -61,29 +61,29 @@ def test_chat_has_required_fields():
 
 
 def test_chat_invalid_model():
-    """Pydantic חוסם מודל שלא קיים — 422."""
-    r = client.post("/chat", json={"prompt": "שלום", "model": "gpt-999"})
+    """Pydantic rejects an invalid model — expects 422."""
+    r = client.post("/chat", json={"prompt": "Hello", "model": "gpt-999"})
     assert r.status_code == 422
 
 
 def test_chat_empty_prompt():
-    """Pydantic חוסם prompt ריק — 422."""
+    """Pydantic rejects an empty prompt — expects 422."""
     r = client.post("/chat", json={"prompt": "", "model": "gpt-4"})
     assert r.status_code == 422
 
 
 def test_stats_updates_after_request():
-    """אחרי בקשות — הסטטיסטיקות גדלות."""
+    """Stats should increment after a request."""
     with patch("app.main.save_request_to_blob", return_value="p"), \
          patch("app.main.ensure_container"):
         before = client.get("/stats").json()["total_requests"]
-        client.post("/chat", json={"prompt": "בדיקה", "model": "gpt-4"})
+        client.post("/chat", json={"prompt": "Test prompt", "model": "gpt-4"})
         after = client.get("/stats").json()["total_requests"]
     assert after == before + 1
 
 
 def test_metrics_endpoint():
-    """Prometheus endpoint מחזיר נתונים."""
+    """Prometheus endpoint returns metric data."""
     r = client.get("/metrics")
     assert r.status_code == 200
     assert b"ai_requests_total" in r.content

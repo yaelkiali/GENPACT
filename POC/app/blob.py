@@ -1,5 +1,5 @@
 # app/blob.py
-# חיבור ל-Azurite — מדמה Azure Blob Storage לוקלית
+# Azurite connection — local Azure Blob Storage emulator
 import json
 import os
 from datetime import datetime
@@ -8,7 +8,7 @@ from azure.storage.blob import BlobServiceClient
 
 AZURE_CONN_STR = os.getenv(
     "AZURE_STORAGE_CONNECTION_STRING",
-    # connection string סטנדרטי של Azurite
+    # Default Azurite connection string
     "DefaultEndpointsProtocol=http;"
     "AccountName=devstoreaccount1;"
     "AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCXQLv65JcfA==;"
@@ -23,19 +23,19 @@ def get_blob_client() -> BlobServiceClient:
 
 
 def ensure_container():
-    """יוצר את ה-container אם לא קיים."""
+    """Creates the blob container if it does not already exist."""
     client = get_blob_client()
     container = client.get_container_client(CONTAINER_NAME)
     try:
         container.create_container()
     except Exception:
-        pass  # כבר קיים
+        pass  # Container already exists
 
 
 def save_request_to_blob(request_id: str, data: dict) -> str:
     """
-    שומר את הבקשה כ-JSON ב-blob.
-    מחזיר את הנתיב בבלוב.
+    Persists the request payload as JSON in blob storage.
+    Returns the blob path.
     """
     client = get_blob_client()
     blob_name = f"{datetime.utcnow().strftime('%Y/%m/%d')}/{request_id}.json"

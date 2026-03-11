@@ -29,7 +29,7 @@ setup_telemetry()
 
 app = FastAPI(
     title="AI Metrics API",
-    description="מדמה קריאות למודלי AI ועוקב אחרי מטריקות שימוש",
+    description="Simulates AI model calls and tracks usage metrics",
     version="0.1.0",
 )
 
@@ -55,8 +55,8 @@ def startup():
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """
-    מדמה קריאה למודל AI.
-    שומר מטריקות ב-DB ואת הבקשה ב-Azure Blob.
+    Simulates an AI model call.
+    Persists metrics to DB and the request payload to Azure Blob.
     """
     request_id = str(uuid.uuid4())
     start = time.time()
@@ -74,11 +74,11 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     logger.info("chat request received trace_id=%s request_id=%s model=%s user_id=%s",
                 trace_id_hex, request_id, req.model, req.user_id)
 
-    # ── דמיית עיבוד ──────────────────────────────────────────
+    # ── Simulate processing ────────────────────────────────────
     with tracer.start_as_current_span("ai.model.inference") as span:
         tokens_input  = max(1, len(req.prompt.split()) * 2)
         tokens_output = random.randint(50, min(req.max_tokens, 500))
-        time.sleep(random.uniform(0.1, 0.5))          # דמיית latency
+        time.sleep(random.uniform(0.1, 0.5))          # Simulate latency
         duration_ms   = (time.time() - start) * 1000
         response_text = _fake_response(req.model, req.prompt)
         span.set_attributes({
@@ -87,7 +87,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             "ai.duration_ms": round(duration_ms, 2),
         })
 
-    # ── שמירה ל-DB ────────────────────────────────────────────
+    # ── Persist to DB ────────────────────────────────────────────
     with tracer.start_as_current_span("db.save_request") as span:
         record = AIRequest(
             id            = request_id,
@@ -102,7 +102,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         db.add(record)
         span.set_attribute("db.request_id", request_id)
 
-        # ── שמירה ל-Azure Blob ────────────────────────────────────
+        # ── Persist to Azure Blob ──────────────────────────────────
         with tracer.start_as_current_span("blob.save_request") as span:
             try:
                 blob_path = save_request_to_blob(request_id, {
@@ -124,7 +124,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 
         db.commit()
 
-    # ── Prometheus מטריקות ────────────────────────────────────
+    # ── Prometheus metrics ──────────────────────────────────────
     REQUESTS_TOTAL.labels(model=req.model, status="success").inc()
     REQUEST_DURATION.labels(model=req.model).observe(duration_ms / 1000)
     TOKENS_TOTAL.labels(model=req.model, direction="input").inc(tokens_input)
@@ -147,7 +147,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 # ── GET /stats ────────────────────────────────────────────────
 @app.get("/stats", response_model=StatsResponse)
 def get_stats(db: Session = Depends(get_db)):
-    """סיכום שימוש מה-DB — מה Grafana יציג."""
+    """Usage summary from DB — data source for Grafana dashboards."""
     today = date.today()
 
     total_requests  = db.query(func.count(AIRequest.id)).scalar() or 0
@@ -183,7 +183,7 @@ def get_stats(db: Session = Depends(get_db)):
 # ── GET /metrics ──────────────────────────────────────────────
 @app.get("/metrics")
 def metrics():
-    """Prometheus סורק את זה — דודו יחבר לכאן מ-Grafana."""
+    """Prometheus scrape target — consumed by Grafana."""
     data, content_type = get_metrics_response()
     return Response(data, media_type=content_type)
 
@@ -207,8 +207,8 @@ def health(db: Session = Depends(get_db)):
 # ── Helper ────────────────────────────────────────────────────
 def _fake_response(model: str, prompt: str) -> str:
     templates = [
-        f"[{model}] עיבדתי את הבקשה '{prompt[:40]}...' בהצלחה.",
-        f"[{model}] ניתוח הושלם. הנה התובנות שלי.",
-        f"[{model}] קיבלתי את ההנחיה ומחזיר תשובה מדומה לצורך בדיקה.",
+        f"[{model}] Successfully processed request '{prompt[:40]}...'.",
+        f"[{model}] Analysis complete. Here are my insights.",
+        f"[{model}] Prompt received — returning a simulated response for testing.",
     ]
     return random.choice(templates)
