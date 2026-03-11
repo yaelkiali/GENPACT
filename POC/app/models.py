@@ -4,7 +4,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
-# ── קלט ──────────────────────────────────────────────────────
+# ── Request ───────────────────────────────────────────────────
 class ChatRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
     model: Literal["gpt-4", "gpt-3.5", "claude-3", "gemini-pro"] = "gpt-4"
@@ -12,7 +12,7 @@ class ChatRequest(BaseModel):
     max_tokens: int = Field(default=500, ge=1, le=4096)
 
 
-# ── פלט ──────────────────────────────────────────────────────
+# ── Response ──────────────────────────────────────────────────
 class ChatResponse(BaseModel):
     request_id: str
     response_text: str
