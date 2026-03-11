@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: "local"
+    env: "dev"
+
+scrape_configs:
+  # FastAPI app — ai_requests_total, ai_request_duration_seconds, ai_tokens_total
+  - job_name: "ai-metrics-api"
+    static_configs:
+      - targets: ["api:8000"]
+    metrics_path: "/metrics"
+    scrape_interval: 10s
+
+  # OTel Collector's own internal metrics
+  - job_name: "otel-collector"
+    static_configs:
+      - targets: ["otel-collector:8888"]
+
+  # Tempo's own internal metrics
+  - job_name: "tempo"
+    static_configs:
+      - targets: ["tempo:3200"]
+    metrics_path: "/metrics"

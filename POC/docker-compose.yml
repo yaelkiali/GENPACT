@@ -4,6 +4,12 @@ networks:
   ai-metrics:
     driver: bridge
 
+volumes:
+  tempo-data:
+  loki-data:
+  prometheus-data:
+  grafana-data:
+
 services:
 
   api:
@@ -11,9 +17,13 @@ services:
     ports:
       - "8000:8000"
     env_file: .env
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: ai-metrics-api
     depends_on:
       - postgres
       - azurite
+      - otel-collector
     networks:
       - ai-metrics
 
@@ -36,10 +46,81 @@ services:
       - ai-metrics
     command: azurite-blob --blobHost 0.0.0.0
 
-  # ── דודו מוסיף כאן את ה-Observability stack ──────────────
-  # otel-collector:
-  # tempo:
-  # loki:
-  # promtail:
-  # prometheus:
-  # grafana:
+  # ── Observability Stack ────────────────────────────────────────
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.99.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"    # OTLP gRPC — app sends here
+      - "4318:4318"    # OTLP HTTP
+      - "8888:8888"    # Collector's own Prometheus metrics
+    networks:
+      - ai-metrics
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.4.1
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"    # Tempo HTTP — Grafana queries here
+      - "9095:9095"    # Tempo gRPC
+    networks:
+      - ai-metrics
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.7
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    volumes:
+      - ./observability/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"    # Loki HTTP push + query
+    networks:
+      - ai-metrics
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-remote-write-receiver"    # required for Tempo metrics-generator push
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - ai-metrics
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_FEATURE_TOGGLES_ENABLE: "traceqlEditor"
+    volumes:
+      - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    networks:
+      - ai-metrics
+    restart: unless-stopped

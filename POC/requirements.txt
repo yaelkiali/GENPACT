@@ -6,6 +6,14 @@ psycopg2-binary==2.9.9
 azure-storage-blob==12.19.0
 prometheus-client==0.20.0
 
+# OpenTelemetry
+opentelemetry-api==1.24.0
+opentelemetry-sdk==1.24.0
+opentelemetry-exporter-otlp-proto-grpc==1.24.0
+opentelemetry-instrumentation-fastapi==0.45b0
+opentelemetry-instrumentation-sqlalchemy==0.45b0
+opentelemetry-instrumentation-logging==0.45b0
+
 # בדיקות
 pytest==8.2.0
 httpx==0.27.0
