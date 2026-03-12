@@ -33,6 +33,16 @@ class StatsResponse(BaseModel):
     requests_this_month: int
 
 
+class ErrorResponse(BaseModel):
+    request_id: str
+    status_code: int
+    error_type: str
+    message: str
+    model: str
+    duration_ms: float
+    timestamp: datetime
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     db: bool

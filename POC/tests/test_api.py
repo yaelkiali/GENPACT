@@ -87,3 +87,54 @@ def test_metrics_endpoint():
     r = client.get("/metrics")
     assert r.status_code == 200
     assert b"ai_requests_total" in r.content
+
+
+def test_chat_unstable_returns_valid_status():
+    """Unstable endpoint should return 200, 400, or 500."""
+    with patch("app.main.save_request_to_blob", return_value="p"), \
+         patch("app.main.ensure_container"):
+        r = client.post("/chat/unstable", json={"prompt": "Test unstable", "model": "gpt-4"})
+    assert r.status_code in (200, 400, 500)
+
+
+def test_chat_unstable_success_has_fields():
+    """On success, unstable endpoint returns standard chat fields."""
+    with patch("app.main.save_request_to_blob", return_value="p"), \
+         patch("app.main.ensure_container"), \
+         patch("random.random", return_value=0.1):
+        r = client.post("/chat/unstable", json={"prompt": "Test stable", "model": "gpt-4"})
+    assert r.status_code == 200
+    data = r.json()
+    assert "request_id" in data
+    assert "duration_ms" in data
+
+
+def test_chat_unstable_400_error():
+    """Simulated client error returns 400 with error details."""
+    with patch("app.main.save_request_to_blob", return_value="p"), \
+         patch("app.main.ensure_container"), \
+         patch("random.random", return_value=0.6):
+        r = client.post("/chat/unstable", json={"prompt": "Test error", "model": "gpt-4"})
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert detail["error_type"] == "client_error"
+
+
+def test_chat_unstable_500_error():
+    """Simulated server error returns 500 with error details."""
+    with patch("app.main.save_request_to_blob", return_value="p"), \
+         patch("app.main.ensure_container"), \
+         patch("random.random", return_value=0.9):
+        r = client.post("/chat/unstable", json={"prompt": "Test error", "model": "gpt-4"})
+    assert r.status_code == 500
+    detail = r.json()["detail"]
+    assert detail["error_type"] == "server_error"
+
+
+def test_chat_unstable_updates_metrics():
+    """Unstable endpoint should update Prometheus metrics."""
+    with patch("app.main.save_request_to_blob", return_value="p"), \
+         patch("app.main.ensure_container"):
+        client.post("/chat/unstable", json={"prompt": "Metrics test", "model": "gpt-4"})
+    r = client.get("/metrics")
+    assert b"ai_requests_total" in r.content
