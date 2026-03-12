@@ -6,7 +6,7 @@ import time
 import uuid
 from datetime import datetime, date
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 from starlette.responses import Response
@@ -14,7 +14,7 @@ from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
-from app.models import ChatRequest, ChatResponse, StatsResponse, HealthResponse
+from app.models import ChatRequest, ChatResponse, ErrorResponse, StatsResponse, HealthResponse
 from app.database import get_db, create_tables, AIRequest, engine
 from app.blob import ensure_container, save_request_to_blob
 from app.metrics import (
@@ -141,6 +141,93 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         tokens_output = tokens_output,
         duration_ms   = round(duration_ms, 2),
         timestamp     = datetime.utcnow(),
+    )
+
+
+# ── POST /chat/unstable — simulates random failures ──────────
+@app.post("/chat/unstable")
+def chat_unstable(req: ChatRequest):
+    """
+    Simulates an unreliable AI model endpoint.
+    Randomly returns 200, 400, or 500 (~50% failure rate).
+    Used for observability and dashboard demos.
+    """
+    request_id = str(uuid.uuid4())
+    start = time.time()
+
+    current_span = trace.get_current_span()
+    current_span.set_attributes({
+        "ai.request_id": request_id,
+        "ai.model": req.model,
+        "ai.endpoint": "unstable",
+    })
+
+    # Simulate variable processing time
+    time.sleep(random.uniform(0.05, 0.8))
+    duration_ms = (time.time() - start) * 1000
+
+    # 50% success, 25% client error (400), 25% server error (500)
+    roll = random.random()
+    if roll < 0.50:
+        status, status_code = "success", 200
+    elif roll < 0.75:
+        status, status_code = "client_error", 400
+    else:
+        status, status_code = "server_error", 500
+
+    # Record Prometheus metrics regardless of outcome
+    REQUESTS_TOTAL.labels(model=req.model, status=status).inc()
+    REQUEST_DURATION.labels(model=req.model).observe(duration_ms / 1000)
+
+    current_span.set_attributes({
+        "ai.status": status,
+        "ai.status_code": status_code,
+        "ai.duration_ms": round(duration_ms, 2),
+    })
+
+    if status_code != 200:
+        error_messages = {
+            400: [
+                "Invalid prompt format — content policy violation detected.",
+                "Token limit exceeded for the requested model.",
+                "Malformed request — missing required context field.",
+            ],
+            500: [
+                "Model inference timeout — GPU cluster overloaded.",
+                "Internal model error — unexpected null tensor output.",
+                "Service degraded — upstream dependency unreachable.",
+            ],
+        }
+        message = random.choice(error_messages[status_code])
+        logger.warning("unstable endpoint failure request_id=%s status=%d msg=%s",
+                        request_id, status_code, message)
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "request_id": request_id,
+                "error_type": status,
+                "message": message,
+                "model": req.model,
+                "duration_ms": round(duration_ms, 2),
+            },
+        )
+
+    tokens_in = max(1, len(req.prompt.split()) * 2)
+    tokens_out = random.randint(50, min(req.max_tokens, 500))
+    TOKENS_TOTAL.labels(model=req.model, direction="input").inc(tokens_in)
+    TOKENS_TOTAL.labels(model=req.model, direction="output").inc(tokens_out)
+
+    logger.info("unstable endpoint success request_id=%s duration_ms=%.2f",
+                request_id, duration_ms)
+
+    return ChatResponse(
+        request_id=request_id,
+        response_text=_fake_response(req.model, req.prompt),
+        model=req.model,
+        tokens_input=tokens_in,
+        tokens_output=tokens_out,
+        duration_ms=round(duration_ms, 2),
+        timestamp=datetime.utcnow(),
     )
 
 
